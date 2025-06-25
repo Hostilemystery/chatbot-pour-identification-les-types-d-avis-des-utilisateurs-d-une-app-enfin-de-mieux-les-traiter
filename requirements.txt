@@ -1,0 +1,7 @@
+matplotlib==3.10.3
+nltk==3.9.1
+pandas==2.3.0
+regex==2024.11.6
+wordcloud == 1.9.4
+cleantext == 1.1.4
+scikit-learn==1.7.0
