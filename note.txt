@@ -1,0 +1,2 @@
+uvicorn app.main:app --reload
+streamlit run app/streamlit_chatbot.py

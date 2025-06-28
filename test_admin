@@ -1,0 +1,59 @@
+# predict_bert_intent.py (avec score de confiance)
+
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import joblib
+import torch.nn.functional as F
+
+# Load model and tokenizer
+model_path = "model/bert-intent-tiny-model"
+tokenizer = AutoTokenizer.from_pretrained(model_path)
+model = AutoModelForSequenceClassification.from_pretrained(model_path)
+model.eval()
+
+# Load label encoder
+label_encoder = joblib.load("model/label_encoder.pkl")
+
+# 20 custom test inputs
+texts = [
+    "What were the last reviews submitted?",
+    "Give me 5 of the latest feedbacks",
+    "Fetch the newest reviews",
+    "Show me the most recent 5 reviews",
+    "I want to see the last added reviews",
+    "Can I see all reviews related to updates?",
+    "List the complaints about ads",
+    "Show me user feedbacks in the bugs category",
+    "Do we have reviews about crashes?",
+    "Retrieve all entries under premium features",
+    "How many reviews are currently in the system?",
+    "Get me the full count of reviews",
+    "Total number of comments added?",
+    "I need to know how many feedbacks we got",
+    "Tell me the count of submitted reviews",
+    "How many reviews fall under the ads category?",
+    "Give me the number of bugs-related feedbacks",
+    "Count the suggestions submitted by users",
+    "Do we have many support reviews?",
+    "What's the number of reviews on updates?"
+]
+
+# Predict function with confidence score
+
+
+def predict_intent(text):
+    inputs = tokenizer(text, return_tensors="pt",
+                       truncation=True, padding=True)
+    with torch.no_grad():
+        outputs = model(**inputs)
+        probs = F.softmax(outputs.logits, dim=1)
+        confidence, prediction = torch.max(probs, dim=1)
+        label = label_encoder.inverse_transform([prediction.item()])[0]
+    return label, confidence.item()
+
+
+# Run predictions
+for text in texts:
+    intent, confidence = predict_intent(text)
+    print(
+        f"\n📝 Avis : {text}\n➡️  Catégorie prédite : {intent} (Confiance : {confidence:.2f})")

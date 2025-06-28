@@ -14,7 +14,7 @@ st.markdown("""
         border: 1px solid #e0e0e0;
         background: #fff;
         padding: 10px;
-        color: #222 !important; /* <-- Add this line for visible text */
+        color: #222 !important;
         font-size: 1.1em;
     }
     .stButton>button {
@@ -52,101 +52,137 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- Session management ---
-if "session_id" not in st.session_state:
-    response = requests.get(f"{API_URL}/start")
-    st.session_state.session_id = response.json()["session_id"]
-    st.session_state.messages = []
-    st.session_state.waiting_confirmation = False
-    st.session_state.predicted_category = None
-    st.session_state.input_disabled = False
+# --- Tabs for User/Admin ---
+tab1, tab2 = st.tabs(["User", "Admin"])
 
-# --- App title ---
-st.markdown("<h1 style='color:#2193b0; font-weight:700;'>💬 AI Feedback Classifier Chatbot</h1>",
-            unsafe_allow_html=True)
+with tab1:
+    # --- Session management ---
+    if "session_id" not in st.session_state:
+        response = requests.get(f"{API_URL}/start")
+        st.session_state.session_id = response.json()["session_id"]
+        st.session_state.messages = []
+        st.session_state.waiting_confirmation = False
+        st.session_state.predicted_category = None
+        st.session_state.input_disabled = False
 
-# --- Message display ---
-for msg in st.session_state.messages:
-    role = "🤖 Bot" if msg["from"] == "bot" else "🙋 You"
-    bubble_class = "bot" if msg["from"] == "bot" else "user"
-    st.markdown(
-        f"<div class='message-bubble {bubble_class}'><b>{role}:</b> {msg['text']}</div>",
-        unsafe_allow_html=True
-    )
+    # --- App title ---
+    st.markdown("<h1 style='color:#2193b0; font-weight:700;'>💬 AI Feedback Classifier Chatbot</h1>",
+                unsafe_allow_html=True)
 
-# --- Input field ---
-if not st.session_state.input_disabled:
-    user_input = st.text_input(
-        "Write your review or complaint here:", key="input_text")
-    if st.button("Send"):
-        if user_input.strip() != "":
-            res = requests.post(f"{API_URL}/submit_review?session_id={st.session_state.session_id}", json={
-                "text": user_input
-            })
+    # --- Message display ---
+    for msg in st.session_state.messages:
+        role = "🤖 Bot" if msg["from"] == "bot" else "🙋 You"
+        bubble_class = "bot" if msg["from"] == "bot" else "user"
+        st.markdown(
+            f"<div class='message-bubble {bubble_class}'><b>{role}:</b> {msg['text']}</div>",
+            unsafe_allow_html=True
+        )
+
+    # --- Input field ---
+    if not st.session_state.input_disabled:
+        user_input = st.text_input(
+            "Write your review or complaint here:", key="input_text")
+        if st.button("Send"):
+            if user_input.strip() != "":
+                res = requests.post(f"{API_URL}/submit_review?session_id={st.session_state.session_id}", json={
+                    "text": user_input
+                })
+                if res.status_code == 200:
+                    result = res.json()
+                    st.session_state.messages.append(
+                        {"from": "user", "text": user_input})
+                    st.session_state.messages.append(
+                        {"from": "bot", "text": result.get("message", "⚠️ Unexpected API response.")})
+                    st.session_state.predicted_category = result.get(
+                        "predicted_category")
+                    st.session_state.waiting_confirmation = True
+                    st.session_state.input_disabled = True
+                    st.rerun()
+                else:
+                    st.error("❌ Something went wrong with the API.")
+                    st.write(res.json())
+
+    # --- Confirmation buttons ---
+    if st.session_state.waiting_confirmation:
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Yes, correct"):
+                res = requests.post(
+                    f"{API_URL}/confirm?session_id={st.session_state.session_id}")
+                if res.status_code == 200:
+                    st.session_state.messages.append(
+                        {"from": "bot", "text": res.json().get("message", "⚠️ Unexpected API response.")})
+                    st.success("Your review has been saved! 🎉")
+                    st.balloons()
+                else:
+                    st.session_state.messages.append(
+                        {"from": "bot", "text": "⚠️ API error: " + res.text})
+                st.session_state.waiting_confirmation = False
+                st.session_state.input_disabled = False
+                st.rerun()
+        with col2:
+            if st.button("❌ No, choose another"):
+                res = requests.post(
+                    f"{API_URL}/reject?session_id={st.session_state.session_id}")
+                st.session_state.messages.append(
+                    {"from": "bot", "text": res.json().get("message", "⚠️ Unexpected API response.")})
+                st.session_state.input_disabled = True
+                st.session_state.waiting_confirmation = False
+                st.session_state.choose_category = True
+                st.rerun()
+
+    # --- Category choices ---
+    if st.session_state.get("choose_category", False):
+        st.markdown("### Choose the correct category:")
+        categories = [
+            "Premium Features", "User Feedbacks & Recommendations",
+            "General Topics", "Ads", "Crashes and Bugs",
+            "Updates", "Customer Support"
+        ]
+        for cat in categories:
+            if st.button(cat):
+                res = requests.post(
+                    f"{API_URL}/assign_manual?session_id={st.session_state.session_id}&category={cat}")
+                if res.status_code == 200:
+                    st.session_state.messages.append(
+                        {"from": "bot", "text": res.json().get("message", "⚠️ Unexpected API response.")})
+                    st.success("Your review has been saved! 🎉")
+                    st.balloons()
+                else:
+                    st.session_state.messages.append(
+                        {"from": "bot", "text": "⚠️ API error: " + res.text})
+                st.session_state.input_disabled = False
+                st.session_state.choose_category = False
+                st.rerun()
+
+with tab2:
+    st.markdown("<h1 style='color:#2193b0; font-weight:700;'>🛠️ Admin Chatbot</h1>",
+                unsafe_allow_html=True)
+    if "admin_messages" not in st.session_state:
+        st.session_state.admin_messages = []
+
+    # --- Display admin chat history ---
+    for msg in st.session_state.admin_messages:
+        role = "🤖 Admin Bot" if msg["from"] == "bot" else "👤 Admin"
+        bubble_class = "bot" if msg["from"] == "bot" else "user"
+        st.markdown(
+            f"<div class='message-bubble {bubble_class}'><b>{role}:</b> {msg['text']}</div>",
+            unsafe_allow_html=True
+        )
+
+    admin_input = st.text_input(
+        "Enter your admin query (e.g. 'Show me the last 5 bug reviews'):", key="admin_input")
+    if st.button("Send", key="admin_send"):
+        if admin_input.strip():
+            res = requests.post(f"{API_URL}/admin_query",
+                                json={"query": admin_input})
             if res.status_code == 200:
                 result = res.json()
-                st.session_state.messages.append(
-                    {"from": "user", "text": user_input})
-                st.session_state.messages.append(
-                    {"from": "bot", "text": result.get("message", "⚠️ Unexpected API response.")})
-                st.session_state.predicted_category = result.get(
-                    "predicted_category")
-                st.session_state.waiting_confirmation = True
-                st.session_state.input_disabled = True
-                st.rerun()
+                st.session_state.admin_messages.append(
+                    {"from": "user", "text": admin_input})
+                st.session_state.admin_messages.append(
+                    {"from": "bot", "text": str(result)})
             else:
-                st.error("❌ Something went wrong with the API.")
-                st.write(res.json())
-
-# --- Confirmation buttons ---
-if st.session_state.waiting_confirmation:
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✅ Yes, correct"):
-            res = requests.post(
-                f"{API_URL}/confirm?session_id={st.session_state.session_id}")
-            if res.status_code == 200:
-                st.session_state.messages.append(
-                    {"from": "bot", "text": res.json().get("message", "⚠️ Unexpected API response.")})
-                st.success("Your review has been saved! 🎉")
-                st.balloons()
-            else:
-                st.session_state.messages.append(
+                st.session_state.admin_messages.append(
                     {"from": "bot", "text": "⚠️ API error: " + res.text})
-            st.session_state.waiting_confirmation = False
-            st.session_state.input_disabled = False
-            st.rerun()
-    with col2:
-        if st.button("❌ No, choose another"):
-            res = requests.post(
-                f"{API_URL}/reject?session_id={st.session_state.session_id}")
-            st.session_state.messages.append(
-                {"from": "bot", "text": res.json().get("message", "⚠️ Unexpected API response.")})
-            st.session_state.input_disabled = True
-            st.session_state.waiting_confirmation = False
-            st.session_state.choose_category = True
-            st.rerun()
-
-# --- Category choices ---
-if st.session_state.get("choose_category", False):
-    st.markdown("### Choose the correct category:")
-    categories = [
-        "Premium Features", "User Feedbacks & Recommendations",
-        "General Topics", "Ads", "Crashes and Bugs",
-        "Updates", "Customer Support"
-    ]
-    for cat in categories:
-        if st.button(cat):
-            res = requests.post(
-                f"{API_URL}/assign_manual?session_id={st.session_state.session_id}&category={cat}")
-            if res.status_code == 200:
-                st.session_state.messages.append(
-                    {"from": "bot", "text": res.json().get("message", "⚠️ Unexpected API response.")})
-                st.success("Your review has been saved! 🎉")
-                st.balloons()
-            else:
-                st.session_state.messages.append(
-                    {"from": "bot", "text": "⚠️ API error: " + res.text})
-            st.session_state.input_disabled = False
-            st.session_state.choose_category = False
             st.rerun()

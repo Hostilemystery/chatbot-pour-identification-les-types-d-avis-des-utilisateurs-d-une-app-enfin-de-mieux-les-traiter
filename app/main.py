@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from app.schema import ReviewIn
 from app.database import SessionLocal
 from app.models import Review
-from app.load_model import predict_category
+from app.load_model import predict_category, predict_admin_intent
 import uuid
 
 app = FastAPI()
@@ -89,3 +89,58 @@ def assign_manual(session_id: str, category: str):
         "message": f"✅ Your review has been saved with the selected category: {category}.",
         "input_enabled": True
     }
+
+
+@app.post("/admin_query")
+def admin_query(query: dict):
+    db = SessionLocal()
+    text = query.get("query", "")
+    intent, params = predict_admin_intent(text)
+    if intent in ["get_latest_reviews"]:
+        n = params.get("n", 5)
+        reviews = db.query(Review).order_by(Review.id.desc()).limit(n).all()
+        db.close()
+        return {"reviews": [{"id": r.id, "text": r.text, "category": r.category} for r in reviews]}
+    elif intent in ["get_reviews_by_category"]:
+        cat = params.get("category")
+        if not cat:
+            db.close()
+            return {"error": "No category specified."}
+        reviews = db.query(Review).filter(Review.category == cat).all()
+        db.close()
+        return {"reviews": [{"id": r.id, "text": r.text, "category": r.category} for r in reviews]}
+    elif intent in ["count_total_reviews", "count"]:
+        total = db.query(Review).count()
+        db.close()
+        return {"count": total}
+    elif intent in ["count_reviews_by_category", "count_by_category"]:
+        cat = params.get("category")
+        if not cat:
+            db.close()
+            return {"error": "No category specified."}
+        total = db.query(Review).filter(Review.category == cat).count()
+        db.close()
+        return {"count": total}
+    elif intent == "get_review_by_id":
+        review_id = params.get("id")
+        if not review_id:
+            db.close()
+            return {"error": "No review ID specified."}
+        review = db.query(Review).filter(Review.id == review_id).first()
+        db.close()
+        if review:
+            return {"review": {"id": review.id, "text": review.text, "category": review.category}}
+        else:
+            return {"error": "Review not found."}
+    elif intent == "search_by_keyword":
+        keyword = params.get("keyword")
+        if not keyword:
+            db.close()
+            return {"error": "No keyword specified."}
+        reviews = db.query(Review).filter(
+            Review.text.ilike(f"%{keyword}%")).all()
+        db.close()
+        return {"reviews": [{"id": r.id, "text": r.text, "category": r.category} for r in reviews]}
+    else:
+        db.close()
+        return {"message": f"Intent '{intent}' not recognized."}
